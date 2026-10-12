@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fire HTTP requests at a host for a fixed duration (default 30 minutes).
+# Fire HTTP requests at a host for a fixed duration (default 72 hours).
 #
 # Usage:
 #   ./loadgen.sh [ip-or-host] [options]
@@ -9,6 +9,8 @@
 #   ./loadgen.sh 203.0.113.10
 #   ./loadgen.sh 203.0.113.10 -c 20 -p / -d 30m
 #   ./loadgen.sh lb.example.com -c 5 --https
+#
+# Prefer: make load-test  (runs this script in a Docker container)
 
 set -euo pipefail
 
@@ -22,8 +24,8 @@ Arguments:
   ip-or-host            Target host (default: ${DEFAULT_HOST})
 
 Options:
-  -c, --concurrency N   Parallel workers (default: 1)
-  -d, --duration DUR    How long to run, e.g. 30m, 1800, 1h (default: 30m)
+  -c, --concurrency N   Parallel workers (default: 5)
+  -d, --duration DUR    How long to run, e.g. 30m, 1800, 1h, 72h (default: 72h)
   -p, --path PATH       Request path (default: /)
   -P, --port PORT       Port (default: 80, or 443 with --https)
       --https           Use https:// instead of http://
@@ -55,8 +57,8 @@ parse_duration_secs() {
 }
 
 HOST=""
-CONCURRENCY=1
-DURATION="30m"
+CONCURRENCY=5
+DURATION="72h"
 PATH_Q="/"
 PORT=""
 SCHEME="http"
