@@ -45,10 +45,16 @@ status:
 	$(COMPOSE) --profile loadtest ps
 
 health:
-	@echo "==> GET /health (should be fast)"
+	@if $(COMPOSE) --profile loadtest ps --status running --services 2>/dev/null | grep -qx loadgen; then \
+		echo "NOTE: loadgen container is still running (5 concurrent / requests)."; \
+		echo "      That queues behind MAX_INFLIGHT=1 and makes GET / >> 8s."; \
+		echo "      Stop it with: make load-test-stop"; \
+		echo ""; \
+	fi
+	@echo "==> GET /health (should be fast; bypasses slow queue)"
 	@$(CURL) -sS -w "\nhttp_code=%{http_code} time_total=%{time_total}s\n" http://127.0.0.1/health
 	@echo ""
-	@echo "==> GET / (should be slow; default 3-8s)"
+	@echo "==> GET / (sleep 200ms-1s + any queue wait from other / traffic)"
 	@$(CURL) -sS -w "\nhttp_code=%{http_code} time_total=%{time_total}s\n" http://127.0.0.1/
 
 load-test:

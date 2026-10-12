@@ -21,8 +21,8 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
-DELAY_MIN_MS = _env_int("DELAY_MIN_MS", 3000)
-DELAY_MAX_MS = _env_int("DELAY_MAX_MS", 8000)
+DELAY_MIN_MS = _env_int("DELAY_MIN_MS", 200)
+DELAY_MAX_MS = _env_int("DELAY_MAX_MS", 1000)
 # Cap concurrent slow handlers so extra requests queue and total latency
 # can exceed DELAY_MAX_MS. /health bypasses this. Default 1 = strict queue.
 MAX_INFLIGHT = max(1, _env_int("MAX_INFLIGHT", 1))
