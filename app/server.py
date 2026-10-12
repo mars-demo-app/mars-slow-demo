@@ -8,6 +8,7 @@ import os
 import random
 import socket
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -22,9 +23,17 @@ def _env_int(name: str, default: int) -> int:
 
 DELAY_MIN_MS = _env_int("DELAY_MIN_MS", 3000)
 DELAY_MAX_MS = _env_int("DELAY_MAX_MS", 8000)
+# Cap concurrent slow handlers so extra requests queue and total latency
+# can exceed DELAY_MAX_MS. /health bypasses this. Default 1 = strict queue.
+MAX_INFLIGHT = max(1, _env_int("MAX_INFLIGHT", 1))
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = _env_int("LISTEN_PORT", 8080)
 HOSTNAME = os.environ.get("HOSTNAME") or socket.gethostname()
+
+SLOW_SLOTS = threading.Semaphore(MAX_INFLIGHT)
+SLOW_WAITING = 0
+SLOW_ACTIVE = 0
+SLOW_LOCK = threading.Lock()
 
 
 def pick_delay_ms(query: dict[str, list[str]]) -> int:
@@ -53,6 +62,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self) -> None:  # noqa: N802
+        global SLOW_WAITING, SLOW_ACTIVE
+
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         query = parse_qs(parsed.query)
@@ -63,16 +74,41 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("/", "/slow"):
             delay_ms = pick_delay_ms(query)
-            time.sleep(delay_ms / 1000.0)
-            self._send_json(
-                200,
-                {
-                    "ok": True,
-                    "delay_ms": delay_ms,
-                    "host": HOSTNAME,
-                    "path": path,
-                },
-            )
+            t0 = time.monotonic()
+
+            with SLOW_LOCK:
+                SLOW_WAITING += 1
+                waiting = SLOW_WAITING
+                active = SLOW_ACTIVE
+
+            SLOW_SLOTS.acquire()
+            queue_wait_ms = int((time.monotonic() - t0) * 1000)
+
+            with SLOW_LOCK:
+                SLOW_WAITING -= 1
+                SLOW_ACTIVE += 1
+
+            try:
+                time.sleep(delay_ms / 1000.0)
+                total_ms = int((time.monotonic() - t0) * 1000)
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "delay_ms": delay_ms,
+                        "queue_wait_ms": queue_wait_ms,
+                        "total_ms": total_ms,
+                        "max_inflight": MAX_INFLIGHT,
+                        "observed_waiting": waiting,
+                        "observed_active": active,
+                        "host": HOSTNAME,
+                        "path": path,
+                    },
+                )
+            finally:
+                with SLOW_LOCK:
+                    SLOW_ACTIVE -= 1
+                SLOW_SLOTS.release()
             return
 
         self._send_json(404, {"ok": False, "error": "not_found", "path": path})
@@ -84,7 +120,8 @@ def main() -> None:
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     print(
         f"mars-slow-demo listening on {LISTEN_HOST}:{LISTEN_PORT} "
-        f"(delay {DELAY_MIN_MS}-{DELAY_MAX_MS} ms, host={HOSTNAME})",
+        f"(delay {DELAY_MIN_MS}-{DELAY_MAX_MS} ms, max_inflight={MAX_INFLIGHT}, "
+        f"host={HOSTNAME})",
         flush=True,
     )
     server.serve_forever()

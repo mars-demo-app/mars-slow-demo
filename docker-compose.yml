@@ -5,6 +5,7 @@ services:
     environment:
       DELAY_MIN_MS: "${DELAY_MIN_MS:-3000}"
       DELAY_MAX_MS: "${DELAY_MAX_MS:-8000}"
+      MAX_INFLIGHT: "${MAX_INFLIGHT:-1}"
     expose:
       - "8080"
 

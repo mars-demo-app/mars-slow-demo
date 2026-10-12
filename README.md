@@ -38,14 +38,14 @@ Load-test defaults: `LOAD_HOST=209.38.1.176`, `LOAD_CONCURRENCY=5`, `LOAD_DURATI
 
 | Path | Behavior |
 |------|----------|
-| `GET /health` | Instant `200` — use this for the LB health check |
-| `GET /` or `GET /slow` | Sleeps a random duration (default 3000–8000 ms), then JSON |
-| `GET /?delay_ms=5000` | Fixed delay for live demos |
+| `GET /health` | Instant `200` — use this for the LB health check (bypasses the slow queue) |
+| `GET /` or `GET /slow` | Queues for a slow slot, sleeps 3000–8000 ms, then JSON. With load, `total_ms` includes queue wait and can exceed 8s |
+| `GET /?delay_ms=5000` | Fixed sleep after the queue (still subject to `MAX_INFLIGHT`) |
 
-Tune delay via env when starting:
+Only `MAX_INFLIGHT` slow requests run at once (default **1**). Extra requests wait, so client/LB latency stacks above the sleep. Tune via env:
 
 ```bash
-DELAY_MIN_MS=2000 DELAY_MAX_MS=10000 make run
+DELAY_MIN_MS=2000 DELAY_MAX_MS=10000 MAX_INFLIGHT=1 make run
 ```
 
 ## Load balancer checklist
