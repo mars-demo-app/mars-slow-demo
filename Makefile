@@ -1,15 +1,17 @@
 COMPOSE ?= docker compose
 CURL ?= curl
+LOAD_HOST ?= 209.38.1.176
 
-.PHONY: run stop logs status health help
+.PHONY: run stop logs status health load-test help
 
 help:
 	@echo "Targets:"
-	@echo "  make run     Build and start the stack (detached)"
-	@echo "  make stop    Stop and remove containers"
-	@echo "  make logs    Follow container logs"
-	@echo "  make status  Show compose service status"
-	@echo "  make health  Probe /health (fast) and / (slow)"
+	@echo "  make run        Build and start the stack (detached)"
+	@echo "  make stop       Stop and remove containers"
+	@echo "  make logs       Follow container logs"
+	@echo "  make status     Show compose service status"
+	@echo "  make health     Probe /health (fast) and / (slow)"
+	@echo "  make load-test  Run loadgen against LOAD_HOST (default: 209.38.1.176)"
 
 # Enable Docker on boot when systemd is available, then bring the stack up.
 run:
@@ -43,3 +45,6 @@ health:
 	@echo ""
 	@echo "==> GET / (should be slow; default 3-8s)"
 	@$(CURL) -sS -w "\nhttp_code=%{http_code} time_total=%{time_total}s\n" http://127.0.0.1/
+
+load-test:
+	./loadgen.sh $(LOAD_HOST) $(ARGS)

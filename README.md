@@ -29,6 +29,7 @@ make run
 | `make logs` | Follow logs |
 | `make status` | `docker compose ps` |
 | `make health` | Probe `/health` (fast) and `/` (slow) |
+| `make load-test` | Run `loadgen.sh` against `LOAD_HOST` (default `209.38.1.176`) |
 
 ## Endpoints
 
@@ -51,7 +52,7 @@ DELAY_MIN_MS=2000 DELAY_MAX_MS=10000 make run
 3. Confirm via LB hostname/IP:
    - `curl -sS http://<lb>/health` — fast
    - `curl -sS -w '%{time_total}\n' http://<lb>/` — slow
-4. Generate load, e.g. `hey -z 60s -c 20 http://<lb>/` or `wrk -t4 -c20 -d60s http://<lb>/`
+4. Generate load: `make load-test` (defaults to `209.38.1.176`), or `make load-test LOAD_HOST=<lb> ARGS='-c 20 -d 30m'`
 5. Watch DO Load Balancer **response time** / request metrics
 
 Sleeping holds connections open; droplet CPU may stay low. That is expected for this demo.
