@@ -7,7 +7,7 @@
 # Examples:
 #   ./loadgen.sh
 #   ./loadgen.sh 203.0.113.10
-#   ./loadgen.sh 203.0.113.10 -c 20 -p / -d 30m
+#   ./loadgen.sh 203.0.113.10 -c 20 -p /work -d 30m
 #   ./loadgen.sh lb.example.com -c 5 --https
 #
 # Prefer: make load-test  (runs this script in a Docker container)
@@ -26,7 +26,7 @@ Arguments:
 Options:
   -c, --concurrency N   Parallel workers (default: 5)
   -d, --duration DUR    How long to run, e.g. 30m, 1800, 1h, 72h (default: 72h)
-  -p, --path PATH       Request path (default: /)
+  -p, --path PATH       Request path (default: /work)
   -P, --port PORT       Port (default: 80, or 443 with --https)
       --https           Use https:// instead of http://
   -h, --help            Show this help
@@ -59,7 +59,7 @@ parse_duration_secs() {
 HOST=""
 CONCURRENCY=5
 DURATION="72h"
-PATH_Q="/"
+PATH_Q="/work"
 PORT=""
 SCHEME="http"
 
@@ -162,13 +162,26 @@ worker() {
   local id="$1"
   local ok=0
   local fail=0
+  local response
   local body
+  local status
   # Propagate Ctrl-C / kill into this background worker and its curl.
   trap 'exit 130' INT TERM HUP
   while (( SECONDS < END_AT )); do
-    if body=$(curl -sS --connect-timeout 5 --max-time 120 "$URL"); then
-      ok=$((ok + 1))
-      printf '[worker %s] %s\n' "$id" "$body"
+    if response=$(curl -sS -w $'\n%{http_code}' --connect-timeout 5 --max-time 120 "$URL"); then
+      status="${response##*$'\n'}"
+      body="${response%$'\n'*}"
+      if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+        ok=$((ok + 1))
+        printf '[worker %s] status=%s %s\n' "$id" "$status" "$body"
+      else
+        fail=$((fail + 1))
+        printf '[worker %s] status=%s %s\n' "$id" "$status" "$body" >&2
+        # A controlled 503 means the app is at its configured memory budget.
+        # Back off so a long demo does not turn expected saturation into a
+        # tight retry loop and an excessive volume of rejection logs.
+        sleep 1
+      fi
     else
       fail=$((fail + 1))
       printf '[worker %s] request failed\n' "$id" >&2

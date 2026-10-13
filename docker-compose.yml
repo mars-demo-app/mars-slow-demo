@@ -2,10 +2,20 @@ services:
   mars-slow-demo:
     build: ./app
     restart: unless-stopped
+    mem_limit: "${APP_CONTAINER_MEMORY_LIMIT:-384m}"
     environment:
-      DELAY_MIN_MS: "${DELAY_MIN_MS:-200}"
-      DELAY_MAX_MS: "${DELAY_MAX_MS:-1000}"
-      MAX_INFLIGHT: "${MAX_INFLIGHT:-1}"
+      WORKING_SET_MB: "${WORKING_SET_MB:-96}"
+      HOLD_MS: "${HOLD_MS:-5000}"
+      MEMORY_BUDGET_MB: "${MEMORY_BUDGET_MB:-192}"
+      MAX_INFLIGHT: "${MAX_INFLIGHT:-2}"
+      MAX_WAITING: "${MAX_WAITING:-2}"
+      QUEUE_TIMEOUT_MS: "${QUEUE_TIMEOUT_MS:-10000}"
+      LOG_PATH: /var/log/mars-memory-demo/app.jsonl
+      DROPLET_ID: "${DROPLET_ID:-unknown}"
+      TENANT_ID: "${TENANT_ID:-unknown}"
+      DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-demo}"
+    volumes:
+      - mars-logs:/var/log/mars-memory-demo
     expose:
       - "8080"
 
@@ -18,6 +28,28 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - mars-slow-demo
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+    restart: unless-stopped
+    # The contrib image is non-root, while Docker initializes named volumes as
+    # root. Root is needed only to persist filelog offsets in otel-state.
+    user: "0:0"
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      OTLP_ENDPOINT: "${OTLP_ENDPOINT:-http://host.docker.internal:4318}"
+      OTLP_AUTHORIZATION: "${OTLP_AUTHORIZATION:-}"
+      DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-demo}"
+      DROPLET_ID: "${DROPLET_ID:-unknown}"
+      DROPLET_NAME: "${DROPLET_NAME:-mars-demo}"
+      DROPLET_RESOURCE_URN: "do:droplet:${DROPLET_ID:-unknown}"
+      TENANT_URN: "do:team:${TENANT_ID:-unknown}"
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - mars-logs:/var/log/mars-memory-demo:ro
+      - otel-state:/var/lib/otelcol
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # Opt-in via: make load-test  (compose profile "loadtest")
   loadgen:
@@ -32,3 +64,9 @@ services:
       - "${LOAD_CONCURRENCY:-5}"
       - "-d"
       - "${LOAD_DURATION:-72h}"
+      - "-p"
+      - "${LOAD_PATH:-/work}"
+
+volumes:
+  mars-logs:
+  otel-state:

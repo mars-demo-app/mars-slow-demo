@@ -3,20 +3,22 @@ CURL ?= curl
 LOAD_HOST ?= 209.38.1.176
 LOAD_CONCURRENCY ?= 5
 LOAD_DURATION ?= 72h
+LOAD_PATH ?= /work
 
-.PHONY: run stop logs status health load-test load-test-stop help
+.PHONY: run stop logs telemetry-logs status health load-test load-test-stop help
 
 help:
 	@echo "Targets:"
 	@echo "  make run             Build and start the stack (detached)"
 	@echo "  make stop            Stop and remove containers (including loadgen)"
 	@echo "  make logs            Follow container logs"
+	@echo "  make telemetry-logs  Follow app and OTLP collector logs"
 	@echo "  make status          Show compose service status"
-	@echo "  make health          Probe /health (fast) and / (slow)"
+	@echo "  make health          Probe /health and a small /work allocation"
 	@echo "  make load-test       Start loadgen container against LOAD_HOST"
 	@echo "  make load-test-stop  Stop only the loadgen container"
 	@echo ""
-	@echo "load-test defaults: LOAD_HOST=$(LOAD_HOST) LOAD_CONCURRENCY=$(LOAD_CONCURRENCY) LOAD_DURATION=$(LOAD_DURATION)"
+	@echo "load-test defaults: LOAD_HOST=$(LOAD_HOST) LOAD_CONCURRENCY=$(LOAD_CONCURRENCY) LOAD_DURATION=$(LOAD_DURATION) LOAD_PATH=$(LOAD_PATH)"
 
 # Enable Docker on boot when systemd is available, then bring the stack up.
 run:
@@ -41,26 +43,29 @@ stop:
 logs:
 	$(COMPOSE) --profile loadtest logs -f
 
+telemetry-logs:
+	$(COMPOSE) logs -f mars-slow-demo otel-collector
+
 status:
 	$(COMPOSE) --profile loadtest ps
 
 health:
 	@if $(COMPOSE) --profile loadtest ps --status running --services 2>/dev/null | grep -qx loadgen; then \
-		echo "NOTE: loadgen container is still running (5 concurrent / requests)."; \
-		echo "      That queues behind MAX_INFLIGHT=1 and makes GET / >> 8s."; \
+		echo "NOTE: loadgen is running; /work may queue or return controlled 503s."; \
 		echo "      Stop it with: make load-test-stop"; \
 		echo ""; \
 	fi
-	@echo "==> GET /health (should be fast; bypasses slow queue)"
+	@echo "==> GET /health (bypasses the workload)"
 	@$(CURL) -sS -w "\nhttp_code=%{http_code} time_total=%{time_total}s\n" http://127.0.0.1/health
 	@echo ""
-	@echo "==> GET / (sleep 200ms-1s + any queue wait from other / traffic)"
-	@$(CURL) -sS -w "\nhttp_code=%{http_code} time_total=%{time_total}s\n" http://127.0.0.1/
+	@echo "==> GET /work (8 MiB for 250ms smoke allocation)"
+	@$(CURL) -sS -w "\nhttp_code=%{http_code} time_total=%{time_total}s\n" \
+		"http://127.0.0.1/work?working_set_mb=8&hold_ms=250"
 
 load-test:
-	LOAD_HOST=$(LOAD_HOST) LOAD_CONCURRENCY=$(LOAD_CONCURRENCY) LOAD_DURATION=$(LOAD_DURATION) \
+	LOAD_HOST=$(LOAD_HOST) LOAD_CONCURRENCY=$(LOAD_CONCURRENCY) LOAD_DURATION=$(LOAD_DURATION) LOAD_PATH=$(LOAD_PATH) \
 		$(COMPOSE) --profile loadtest up -d --build --force-recreate loadgen
-	@echo "loadgen started -> http://$(LOAD_HOST)/  (-c $(LOAD_CONCURRENCY) -d $(LOAD_DURATION))"
+	@echo "loadgen started -> http://$(LOAD_HOST)$(LOAD_PATH)  (-c $(LOAD_CONCURRENCY) -d $(LOAD_DURATION))"
 	@echo "Logs: $(COMPOSE) --profile loadtest logs -f loadgen"
 
 load-test-stop:

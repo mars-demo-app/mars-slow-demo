@@ -1,0 +1,78 @@
+receivers:
+  filelog/mars:
+    include:
+      - /var/log/mars-memory-demo/*.jsonl
+    start_at: beginning
+    storage: file_storage
+    include_file_path: true
+    operators:
+      - type: json_parser
+        parse_from: body
+        timestamp:
+          parse_from: attributes.timestamp
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+        severity:
+          parse_from: attributes.severity
+      - type: move
+        from: attributes.message
+        to: body
+
+processors:
+  resource/mars:
+    attributes:
+      - key: service.name
+        value: mars-memory-demo
+        action: upsert
+      - key: deployment.environment.name
+        value: ${env:DEPLOYMENT_ENVIRONMENT}
+        action: upsert
+      - key: cloud.provider
+        value: digitalocean
+        action: upsert
+  transform/mars:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(resource.attributes["host.name"], attributes["host_name"]) where attributes["host_name"] != nil
+          - set(resource.attributes["host.id"], attributes["droplet_id"]) where attributes["droplet_id"] != nil and attributes["droplet_id"] != ""
+          - set(resource.attributes["cloud.resource_id"], attributes["droplet_id"]) where attributes["droplet_id"] != nil and attributes["droplet_id"] != ""
+          - set(resource.attributes["resource.urn"], attributes["resource_urn"]) where attributes["resource_urn"] != nil and attributes["resource_urn"] != ""
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+
+exporters:
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+  otlphttp:
+    endpoint: ${env:OTLP_ENDPOINT}
+    compression: gzip
+    sending_queue:
+      enabled: true
+      queue_size: 10000
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
+
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol
+    create_directory: true
+
+service:
+  extensions: [file_storage]
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    logs:
+      receivers: [filelog/mars]
+      processors: [resource/mars, transform/mars, batch]
+      exporters: [debug, otlphttp]
